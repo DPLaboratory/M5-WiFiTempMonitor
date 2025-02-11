@@ -17,6 +17,18 @@ DHT dht2(DHT2PIN, DHTTYPE);
 // Creazione server
 AsyncWebServer server(80);
 
+// Buffer per dati storici
+const int DATA_POINTS = 60;
+float temperatureHistory1[DATA_POINTS];
+float temperatureHistory2[DATA_POINTS];
+float humidityHistory1[DATA_POINTS];
+float humidityHistory2[DATA_POINTS];
+int currentIndex = 0;
+
+unsigned long previousMillis = 0;  // Variabile per memorizzare il tempo precedente
+const unsigned long interval = 60000; // Intervallo di 1 minuto (60000 ms)
+
+
 void setup(){
   M5.begin();
   M5.Lcd.setTextSize(2);
@@ -84,6 +96,60 @@ void setup(){
     request->send(200, "text/html", htmlPage);
   });
 
+  server.on("/graf", HTTP_GET, [](AsyncWebServerRequest *request) {
+      String htmlPage = "<!DOCTYPE html><html><head><title>DHT22 Sensor Data</title>";
+      htmlPage += "<script src='https://cdn.jsdelivr.net/npm/chart.js'></script>";
+      htmlPage += "</head><body>";
+      htmlPage += "<h1>Dati dei Sensori DHT22</h1>";
+
+      htmlPage += "<canvas id='sensorChart' width='400' height='200'></canvas>";
+      htmlPage += "<script>";
+      htmlPage += "const temperatureData1 = [";
+      for (int i = 0; i < DATA_POINTS; i++) {
+        htmlPage += String(temperatureHistory1[(currentIndex + i) % DATA_POINTS]) + ",";
+      }
+      htmlPage += "0];";
+      htmlPage += "const temperatureData2 = [";
+      for (int i = 0; i < DATA_POINTS; i++) {
+        htmlPage += String(temperatureHistory2[(currentIndex + i) % DATA_POINTS]) + ",";
+      }
+      htmlPage += "0];";
+      htmlPage += "const humidityData1 = [";
+      for (int i = 0; i < DATA_POINTS; i++) {
+        htmlPage += String(humidityHistory1[(currentIndex + i) % DATA_POINTS]) + ",";
+      }
+      htmlPage += "0];";
+      htmlPage += "const humidityData2 = [";
+      for (int i = 0; i < DATA_POINTS; i++) {
+        htmlPage += String(humidityHistory2[(currentIndex + i) % DATA_POINTS]) + ",";
+      }
+      htmlPage += "0];";
+
+      htmlPage += "const ctx = document.getElementById('sensorChart').getContext('2d');";
+      htmlPage += "const sensorChart = new Chart(ctx, {";
+      htmlPage += "type: 'line',";
+      htmlPage += "data: { labels: Array.from({length: 60}, (_, i) => i + ' min'),";
+      htmlPage += "datasets: [{";
+      htmlPage += "label: 'Temperatura Sensor 1 (°C)',";
+      htmlPage += "data: temperatureData1,";
+      htmlPage += "borderColor: 'orange', fill: false},{";
+      htmlPage += "label: 'Temperatura Sensor 2 (°C)',";
+      htmlPage += "data: temperatureData2,";
+      htmlPage += "borderColor: 'green', fill: false},{";
+      htmlPage += "label: 'Umidità Sensor 1 (%)',";
+      htmlPage += "data: humidityData1,";
+      htmlPage += "borderColor: 'blue', fill: false},{";
+      htmlPage += "label: 'Umidità Sensor 2 (%)',";
+      htmlPage += "data: humidityData2,";
+      htmlPage += "borderColor: 'purple', fill: false}]},";
+      htmlPage += "options: {scales: {x: {title: {display: true, text: 'Tempo (minuti)'}}, y: {title: {display: true, text: 'Valori'}}}}";
+      htmlPage += "});";
+      htmlPage += "</script>";
+
+      htmlPage += "</body></html>";
+      request->send(200, "text/html", htmlPage);
+  });
+  
   // Avvia il server
   server.begin();
 }
@@ -91,8 +157,8 @@ void setup(){
 
 void loop() {
 
-   // Wait a few seconds between measurements.
-   delay(2000);
+   
+
    M5.Lcd.fillScreen(BLACK);
    M5.Lcd.setCursor(0, 15);
 
@@ -113,12 +179,14 @@ void loop() {
   // Check if any reads failed and exit early (to try again).
   if (isnan(humidity1) || isnan(temperature1)) {
     M5.Lcd.println(F("Failed to read from DHT sensor 1!"));
+    delay(1000 * 20);
     return;
   }
 
   // Check if any reads failed and exit early (to try again).
   if (isnan(humidity2) || isnan(temperature2)) {
     M5.Lcd.println(F("Failed to read from DHT sensor 2!"));
+    delay(1000 * 20);
     return;
   }
   // Compute heat index in Celsius (isFahreheit = false)
@@ -133,4 +201,33 @@ void loop() {
   M5.Lcd.print(temperature2);
   M5.Lcd.print(F(" % "));
   M5.Lcd.println(humidity2);
+
+  M5.Lcd.println(F(" "));
+  M5.Lcd.print(F(" DATA POINTS: "));
+  M5.Lcd.println(currentIndex);
+
+  unsigned long currentMillis = millis();
+  if (currentMillis - previousMillis >= interval) {
+    previousMillis = currentMillis; 
+    // Aggiorna i dati dei sensori ogni minuto
+    updateSensorHistory();
+  }
+  
+  // Wait a few seconds between measurements.
+  delay(1000 * 20);
+}
+
+void updateSensorHistory() {
+  float temperature1 = dht1.readTemperature();
+  float humidity1 = dht1.readHumidity();
+  float temperature2 = dht2.readTemperature();
+  float humidity2 = dht2.readHumidity();
+
+  if (!isnan(temperature1) && !isnan(humidity1) && !isnan(temperature2) && !isnan(humidity2)) {
+    temperatureHistory1[currentIndex] = temperature1;
+    humidityHistory1[currentIndex] = humidity1;
+    temperatureHistory2[currentIndex] = temperature2;
+    humidityHistory2[currentIndex] = humidity2;
+    currentIndex = (currentIndex + 1) % DATA_POINTS;
+  }
 }
